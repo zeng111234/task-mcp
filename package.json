@@ -1,5 +1,5 @@
 {
-  "name": "task-mcp",
+  "name": "task-mcp-checkpoint",
   "version": "0.1.0",
   "description": "MCP server that breaks big tasks into small steps with human-in-the-loop confirmation",
   "main": "dist/server.js",
