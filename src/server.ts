@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
 // task-mcp — MCP Server
-// 只有 1 个工具：checkpoint
-// AI 跑完后停下来，让你确认是否合格
+// 3 个工具：checkpoint / set_mode / get_mode
 // ============================================================
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -12,14 +11,19 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { checkpoint, handleCheckpointAction } from "./checkpoint";
+import {
+  checkpoint,
+  handleCheckpointAction,
+  setMode,
+  getMode,
+} from "./checkpoint";
 
 // ============================================================
 // 创建 MCP Server
 // ============================================================
 
 const server = new Server(
-  { name: "task-mcp", version: "0.2.0" },
+  { name: "task-mcp", version: "0.3.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -32,43 +36,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "checkpoint",
       description:
-        "人工检查点。AI 完成一个阶段的工作后调用此工具，自动跑验证命令，" +
-        "然后弹窗让用户确认是否合格。" +
-        "合格 → 继续；不合格 → 用户输入理由，AI 修复后重新验证。" +
-        "\n\n使用场景：\n" +
-        "- AI 写完代码、跑完测试后\n" +
-        "- AI 完成一个功能模块后\n" +
-        "- 需要用户打开浏览器查看效果时\n" +
-        "- Hook 触发（PostToolUse 检测到 test/build 命令后）",
+        "人工检查点。AI 完成一个阶段的工作后调用，自动跑验证命令。" +
+        "根据当前模式决定是否弹窗：" +
+        "\n- manual: 每次都弹窗" +
+        "\n- smart（默认）: 验证通过自动继续，失败才弹窗" +
+        "\n- auto: 不弹窗，验证通过自动继续（失败也自动继续）" +
+        "\n\n弹窗时可一键切换模式。",
       inputSchema: {
         type: "object",
         properties: {
-          project: {
+          project: { type: "string", description: "项目路径" },
+          summary: { type: "string", description: "AI 做了什么（一句话）" },
+          mode: {
             type: "string",
-            description: "项目路径（当前工作目录）",
-          },
-          summary: {
-            type: "string",
-            description: "AI 做了什么（一句话描述）",
+            enum: ["manual", "auto", "smart"],
+            description: "覆盖本次 checkpoint 的模式（可选，默认用会话级设置）",
           },
           evidence: {
             type: "object",
-            description: "手动提供的验证结果（可选，不传则自动检测并运行）",
+            description: "手动验证结果（可选）",
             properties: {
-              test: { type: "string", description: "测试结果" },
-              build: { type: "string", description: "构建结果" },
-              lint: { type: "string", description: "Lint 结果" },
-              log: { type: "string", description: "其他日志" },
+              test: { type: "string" },
+              build: { type: "string" },
+              lint: { type: "string" },
+              log: { type: "string" },
             },
           },
-          open: {
-            type: "string",
-            description: "要打开的 URL（可选，展示在弹窗里供用户查看）",
-          },
-          auto_validate: {
-            type: "boolean",
-            description: "是否自动跑验证命令（默认 true）",
-          },
+          open: { type: "string", description: "要打开的 URL（可选）" },
+          auto_validate: { type: "boolean", description: "自动跑验证（默认 true）" },
         },
         required: ["project", "summary"],
       },
@@ -76,22 +71,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "checkpoint_action",
       description:
-        "处理用户在 checkpoint 弹窗中的选择。" +
-        "此工具由 Reasonix AI 在用户点击按钮后自动调用，不需要手动调用。",
+        "处理用户的 checkpoint 选择（pass/fail/switch_mode）。" +
+        "由 Reasonix AI 在用户点击按钮后自动调用。",
       inputSchema: {
         type: "object",
         properties: {
           action: {
             type: "string",
-            enum: ["pass", "fail"],
-            description: "用户选择：pass=合格，fail=不合格",
+            enum: ["pass", "fail", "switch_auto", "switch_smart", "switch_manual"],
+            description: "用户选择",
           },
           reason: {
             type: "string",
-            description: "不合格理由（仅 action=fail 时需要）",
+            description: "不合格理由（仅 action=fail 时）",
           },
         },
         required: ["action"],
+      },
+    },
+    {
+      name: "set_mode",
+      description:
+        "切换 checkpoint 模式。切换后所有后续 checkpoint 都使用新模式。" +
+        "\n- manual: 每次都弹窗确认" +
+        "\n- smart（默认）: 失败才弹窗" +
+        "\n- auto: 全自动，不弹窗",
+      inputSchema: {
+        type: "object",
+        properties: {
+          mode: {
+            type: "string",
+            enum: ["manual", "auto", "smart"],
+            description: "目标模式",
+          },
+        },
+        required: ["mode"],
+      },
+    },
+    {
+      name: "get_mode",
+      description:
+        "查看当前 checkpoint 模式和统计数据（总次数、连续失败次数、最近历史）。",
+      inputSchema: {
+        type: "object",
+        properties: {},
       },
     },
   ],
@@ -108,24 +131,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let result: any;
 
     switch (name) {
-      case "checkpoint": {
+      case "checkpoint":
         result = checkpoint({
           project: args!.project as string,
           summary: args!.summary as string,
+          mode: args!.mode as any,
           evidence: args!.evidence as any,
           open: args!.open as string | undefined,
           auto_validate: args!.auto_validate !== false,
         });
         break;
-      }
 
-      case "checkpoint_action": {
+      case "checkpoint_action":
         result = handleCheckpointAction(
           args!.action as string,
           args!.reason as string | undefined
         );
         break;
-      }
+
+      case "set_mode":
+        result = setMode(args!.mode as any);
+        break;
+
+      case "get_mode":
+        result = getMode();
+        break;
 
       default:
         return {
@@ -152,7 +182,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("task-mcp v0.2.0 started (checkpoint only)");
+  console.error("task-mcp v0.3.0 started");
 }
 
 main().catch((err) => {
