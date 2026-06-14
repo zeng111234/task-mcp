@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "match": "run_command",
+        "command": "node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));const c=p.toolArgs?.command||'';if(c.match(/test|build|jest|pytest|cargo test|go test/))process.exit(2)\"",
+        "description": "检测到 test/build 命令后，拦截并要求 AI 调用 checkpoint"
+      }
+    ]
+  }
+}

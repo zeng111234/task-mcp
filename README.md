@@ -2,12 +2,12 @@
 
 # 🔧 task-mcp
 
-### 把大任务拆成小任务，逐步执行，逐步确认
+### 给 AI 野马套上马鞍 — 人工检查点 MCP 服务器
 
 [![npm](https://img.shields.io/npm/v/task-mcp)](https://www.npmjs.com/package/task-mcp)
 [![License](https://img.shields.io/npm/l/task-mcp)](./LICENSE)
 
-**解决 AI 编码的核心痛点：一次性写太多代码，看不懂、审不过来、改不动。**
+**AI 跑完后停下来让你确认，合格才继续。**
 
 </div>
 
@@ -18,50 +18,43 @@
 Vibe Coding 的真实体验：
 
 ```
-你："帮我实现 X 功能"
-AI：给你 500 行代码
-你：粘贴进去... 跑不通
-你：复制报错，粘贴给 AI
-AI：给你 50 行修复
-你：粘贴进去... 还是不对
-（循环 5 次，30 分钟过去了）
+AI 一口气写了 500 行 → 跑了一下 → 你粘贴报错 → AI 改 → 还是不对 → 循环 5 次
 ```
 
-**问题不是 AI 不会写代码，是一次性倒出来太多，你根本审不过来。**
+**问题不是 AI 不会写代码，是它跑完了不停下来让你看。**
 
 ---
 
 ## 💡 解法
 
-**大任务 → 拆成小任务 → 每个小任务写完你确认 → 下一个**
+**Hook + MCP 组合方案：**
 
 ```
-你："给 scorer.js 加一个热度评分因子"
-
-AI 自动拆分：
-  Task 1: 创建数据获取函数（~40行）
-  Task 2: 实现评分逻辑（~30行）
-  Task 3: 集成到 scorer.js（~10行）
-  Task 4: 写测试（~50行）
-  Task 5: 全量验证
-
-每个 Task 完成后弹窗让你选择：
-  [✅ 确认，继续] [🧪 跑测试] [❌ 重做] [⏭️ 跳过]
+AI 分析 → AI 编码 → AI 跑测试
+                         ↓
+              Hook 拦截："测试跑完了，请确认"
+                         ↓
+              AI 调用 checkpoint → 弹窗
+                         ↓
+              [✅ 合格] [❌ 不合格]
+                         ↓
+              合格 → 继续
+              不合格 → 输入理由 → AI 修复
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 安装
+### 1. 安装
 
 ```bash
 npx task-mcp
 ```
 
-### 配置（Reasonix）
+### 2. 配置 Reasonix
 
-在 `reasonix.toml` 中添加：
+在 `reasonix.toml` 添加：
 
 ```toml
 [[plugins]]
@@ -70,88 +63,127 @@ command = "npx"
 args    = ["-y", "task-mcp@latest"]
 ```
 
-### 配置（Claude Desktop）
+### 3. 安装 Hook（可选但推荐）
 
-在 `claude_desktop_config.json` 中添加：
+```bash
+# 复制 Hook 配置到你的项目
+cp -r hooks/.reasonix /你的项目路径/.reasonix
 
-```json
-{
-  "mcpServers": {
-    "task": {
-      "command": "npx",
-      "args": ["-y", "task-mcp@latest"]
-    }
-  }
-}
+# 或全局安装
+cp hooks/.reasonix/settings.json ~/.reasonix/settings.json
 ```
+
+Hook 的作用：**AI 跑完 test/build 命令后自动拦截，强制要求调用 checkpoint。**
+
+### 4. 重启 Reasonix
 
 ---
 
 ## 🔧 Tools
 
-| 工具 | 说明 | 调用者 |
-|------|------|--------|
-| `start_task` | 分析项目，返回上下文 | AI |
-| `create_plan` | 接收拆分的子任务，创建计划 | AI |
-| `execute_next_subtask` | 执行下一个子任务 | AI |
-| `complete_subtask` | 提交代码，返回 diff | AI |
-| `handle_user_action` | 处理用户选择 | AI |
+### `checkpoint`
 
-**你不需要手动调用这些工具。** 你只需要告诉 AI 你的任务，它会自动走完整个流程。
+AI 完成一个阶段的工作后调用。
+
+```typescript
+checkpoint({
+  project: ".",                          // 项目路径
+  summary: "实现了热度评分因子",            // 做了什么
+  open: "http://localhost:3000",          // 打开 URL（可选）
+  evidence: { test: "手动测试通过" },      // 手动证据（可选）
+  auto_validate: true                     // 自动跑验证（默认 true）
+})
+```
+
+**自动做的事：**
+1. 检测项目中的 test/build/lint 命令
+2. 运行这些命令
+3. 获取 git diff
+4. 弹窗让你确认
+
+**弹窗：**
+```
+[✅ 合格，继续] [❌ 不合格]
+```
 
 ---
 
 ## 📋 完整流程
 
 ```
-你：描述任务
+你："给 scorer.js 加一个热度评分因子"
+
+AI 正常工作（用 write_file、edit_file、bash 写代码）
     ↓
-AI 调用 start_task → 获取项目上下文
+AI 跑 npm test
     ↓
-AI 拆分任务，调用 create_plan
+Hook 拦截（exit 2）
     ↓
-AI 调用 execute_next_subtask → 获取子任务信息
+Reasonix 注入消息："请调用 checkpoint"
     ↓
-AI 生成代码，调用 complete_subtask
+AI 调用 checkpoint
     ↓
-弹窗让你选择：
-  ✅ 确认 → 代码落盘，下一个任务
-  🧪 跑测试 → 运行验证命令，看结果再选
-  ❌ 重做 → 输入理由，AI 重新生成
-  ⏭️ 跳过 → 跳过这个任务
-  ⏸️ 暂停 → 稍后继续
+自动跑验证 + 展示 diff + 弹窗
     ↓
-循环直到所有子任务完成
-    ↓
-🎉 完成！跑最终验证
+你点"合格" → AI 继续
+你点"不合格" → 输入理由 → AI 修复 → 重新验证
 ```
+
+---
+
+## 🏗️ 架构
+
+```
+task-mcp/
+├── src/
+│   ├── server.ts           # MCP Server（1 个工具）
+│   └── checkpoint.ts       # 核心逻辑
+├── hooks/
+│   ├── .reasonix/
+│   │   └── settings.json   # Hook 配置模板
+│   └── README.md           # Hook 使用说明
+├── package.json
+└── README.md
+```
+
+**只有 1 个工具，~150 行核心代码。**
+
+---
+
+## 🔍 设计理念
+
+> "模型是 agent，代码是 harness。构建好的 harness，agent 会完成剩下的事。"
+
+task-mcp 是一个 **Harness 检查点**：
+
+| 概念 | 实现 |
+|------|------|
+| Restate First | AI 调用 checkpoint 时必须描述"做了什么" |
+| No Approval, No Execute | 弹窗必须等用户点"合格" |
+| Done by Evidence | 自动跑 test/build，展示 git diff |
+| AI 不能自我认证 | 弹窗由 MCP 控制，不由 AI 控制 |
+| Hook 触发 | PostToolUse 拦截 test/build 命令 |
 
 ---
 
 ## ❓ FAQ
 
 <details>
-<summary><b>Q: 和 Cursor / Claude Code 的 plan 模式有什么区别？</b></summary>
+<summary><b>Q: 不装 Hook 也能用吗？</b></summary>
 
-plan 模式只做规划，执行阶段还是一次性写完。task-mcp 的核心是**逐步执行 + 逐步确认**，每个小任务完成后你都能审核。
+可以。不装 Hook 的话，AI 需要自觉调用 checkpoint。装了 Hook 后，AI 跑完 test/build 会被自动拦截。
 </details>
 
 <details>
-<summary><b>Q: 每次只写 10 行不会很慢吗？</b></summary>
+<summary><b>Q: 和 Cursor / Claude Code 的 plan 模式有什么区别？</b></summary>
 
-不是每次 10 行，是每个子任务 30-80 行。一个完整的功能模块，你能看懂、能审核。比一次性 500 行然后反复粘贴报错快多了。
+plan 模式只做规划，执行阶段还是一次性写完。task-mcp 的 checkpoint 是在执行过程中插入人工检查点。
 </details>
 
 <details>
 <summary><b>Q: 支持哪些语言和项目？</b></summary>
 
-任何语言、任何项目。task-mcp 不关心你用什么语言，它只做任务拆分和代码管理。
-</details>
-
-<details>
-<summary><b>Q: 验证命令怎么配置？</b></summary>
-
-可以自动检测（从 package.json / Makefile 推断），也可以手动指定。
+任何语言、任何项目。checkpoint 只做验证和确认，不关心你用什么语言。
 </details>
 
 ---
