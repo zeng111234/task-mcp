@@ -3,13 +3,13 @@
     "PostToolUse": [
       {
         "match": "run_command",
-        "command": "node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));const c=p.toolArgs?.command||'';if(c.match(/\\b(test|jest|pytest|vitest|cargo test|go test|npm run build)\\b/))process.exit(2)\"",
-        "description": "检测到 test/build 命令后，拦截要求调用 checkpoint"
+        "command": "node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));const c=p.toolArgs?.command||'';if(c.match(/\\\\b(test|jest|pytest|vitest|cargo test|go test|npm run build)\\\\b/)){process.stderr.write('测试/构建命令已执行，请调用 checkpoint 工具进行人工验证');process.exit(2)}\"",
+        "description": "检测到 test/build 命令后，拦截并要求调用 checkpoint"
       },
       {
         "match": "write_file|edit_file|multi_edit",
-        "command": "node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));const f=p.toolArgs?.path||'';if(!f.includes('.task-mcp')&&!f.includes('node_modules')&&!f.includes('.git'))process.exit(1)\"",
-        "description": "写文件后注入提醒：考虑调用 checkpoint 验证"
+        "command": "node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));const f=p.toolArgs?.path||'';if(!f.includes('.task-mcp')&&!f.includes('node_modules')&&!f.includes('.git')){process.stderr.write('文件已修改，建议调用 checkpoint 工具验证变更');process.exit(1)}\"",
+        "description": "写文件后提醒调用 checkpoint"
       }
     ]
   }
