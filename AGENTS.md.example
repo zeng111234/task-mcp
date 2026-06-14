@@ -1,0 +1,8 @@
+# AGENTS.md
+
+## Checkpoint 规则
+
+1. 每次使用 write_file / edit_file 后，调用 `checkpoint` 工具验证
+2. 每次跑完测试/构建后，调用 `checkpoint` 工具验证
+3. checkpoint 会弹窗让你确认，等结果返回后再继续
+4. 如果 checkpoint 返回"不合格"，根据反馈修复后重新调用 checkpoint
