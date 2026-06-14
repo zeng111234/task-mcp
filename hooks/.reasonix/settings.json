@@ -2,11 +2,6 @@
   "hooks": {
     "PostToolUse": [
       {
-        "match": "write_file|edit_file|multi_edit",
-        "command": "node .reasonix/hooks/post-tool-hook.js",
-        "description": "写文件后提醒调用 checkpoint"
-      },
-      {
         "match": "run_command",
         "command": "node .reasonix/hooks/post-tool-hook.js",
         "description": "test/build 命令后拦截要求调用 checkpoint"
